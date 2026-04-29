@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="AI-powered election assistant that generates personalized voter action plans, explains the election process, and answers your civic questions using Google Gemini." />
+  <meta name="keywords" content="election assistant, voter guide, how to vote, voter registration, election AI, Gemini AI, civic tech" />
+  <title>AI Election Decision Assistant</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+  <!-- Accessibility: skip navigation -->
+  <a class="skip-link" href="#main-content">Skip to main content</a>
+
+  <!-- ══════════════════════════════════════════════════════
+       HEADER
+  ══════════════════════════════════════════════════════ -->
+  <header role="banner">
+    <div class="header-inner">
+      <div class="brand">
+        <div class="brand-icon" aria-hidden="true">🗳️</div>
+        <div>
+          <h1>AI Election Decision Assistant</h1>
+          <p>Personalized voter guidance powered by AI</p>
+        </div>
+      </div>
+      <div class="gemini-badge" aria-label="Powered by Google Gemini AI">
+        <div class="pulse-dot" aria-hidden="true"></div>
+        Google Gemini AI
+      </div>
+    </div>
+  </header>
+
+  <!-- ══════════════════════════════════════════════════════
+       MAIN
+  ══════════════════════════════════════════════════════ -->
+  <main id="main-content" role="main">
+
+    <!-- ── API Key Setup ─────────────────────────────────── -->
+    <section class="card" aria-labelledby="api-key-heading">
+      <div class="section-title">
+        <span class="icon" aria-hidden="true">🔑</span>
+        <h2 id="api-key-heading">Gemini API Setup (Optional)</h2>
+        <span class="tag">AI Power</span>
+      </div>
+      <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:14px;">
+        Enter your Gemini API key to enable live AI responses. Without it, the assistant uses 
+        intelligent rule-based logic — fully functional either way.
+      </p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;">
+        <input
+          type="password"
+          id="api-key-input"
+          placeholder="Paste your Gemini API key here…"
+          aria-label="Gemini API key"
+          autocomplete="off"
+          style="flex:1;min-width:220px;background:rgba(255,255,255,0.04);border:1px solid var(--border);
+                 border-radius:8px;padding:10px 14px;color:var(--text-primary);font-size:0.88rem;
+                 font-family:inherit;"
+        />
+        <button id="api-key-btn" class="btn-primary" aria-label="Activate Gemini API key">
+          <span aria-hidden="true">✨</span> Activate
+        </button>
+      </div>
+      <p id="key-status" role="status" aria-live="polite"
+         style="font-size:0.78rem;color:var(--text-muted);margin-top:8px;"></p>
+    </section>
+
+    <!-- ── 1. Election Strategy Simulator ───────────────── -->
+    <section class="card" aria-labelledby="simulator-heading">
+      <div class="section-title">
+        <span class="icon" aria-hidden="true">🎯</span>
+        <h2 id="simulator-heading">Election Strategy Simulator</h2>
+        <span class="tag">Core Feature</span>
+      </div>
+      <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:20px;">
+        Tell us a little about yourself and we'll generate a personalized, step-by-step voter action plan — 
+        complete with urgency signals and AI reasoning.
+      </p>
+
+      <form id="simulator-form" aria-label="Voter context form" novalidate>
+        <div class="simulator-grid">
+
+          <div class="form-group">
+            <label for="voter-type">Are you a first-time voter?</label>
+            <select id="voter-type" name="voter-type" aria-required="true">
+              <option value="first">Yes, first-time voter 🌟</option>
+              <option value="returning">No, I've voted before</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="reg-status">Are you currently registered?</label>
+            <select id="reg-status" name="reg-status" aria-required="true">
+              <option value="yes">Yes, I'm registered ✅</option>
+              <option value="no">No, not yet registered</option>
+              <option value="unsure">Not sure</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="days-left">Days left before voting day</label>
+            <input
+              type="number"
+              id="days-left"
+              name="days-left"
+              min="1"
+              max="365"
+              value="7"
+              aria-required="true"
+              aria-describedby="days-hint"
+            />
+            <span id="days-hint" style="font-size:0.72rem;color:var(--text-muted);">Enter a number between 1 and 365</span>
+          </div>
+
+        </div>
+
+        <button type="submit" class="btn-primary" id="generate-plan-btn"
+                aria-label="Generate personalized voter action plan">
+          <span aria-hidden="true">⚡</span> Generate My Voter Plan
+        </button>
+      </form>
+
+      <!-- Plan Output -->
+      <div id="plan-output" aria-live="polite" aria-label="Personalized voter action plan">
+        <div class="plan-header">
+          <div class="plan-title" id="plan-title"></div>
+          <div class="confidence-chip" id="confidence-score" aria-label="Plan confidence score">
+            📊 —
+          </div>
+        </div>
+        <div class="reasoning-box" id="plan-reasoning"></div>
+        <div class="urgency-banner" id="urgency-banner" role="alert"></div>
+        <ol class="plan-steps" id="plan-steps" aria-label="Action plan steps"></ol>
+      </div>
+    </section>
+
+    <!-- ── 2. Interactive AI Assistant ──────────────────── -->
+    <section class="card" aria-labelledby="chat-heading">
+      <div class="section-title">
+        <span class="icon" aria-hidden="true">💬</span>
+        <h2 id="chat-heading">Ask the Election Assistant</h2>
+        <span class="tag">Gemini AI</span>
+      </div>
+
+      <!-- Quick intent chips -->
+      <div class="intent-chips" role="group" aria-label="Quick question shortcuts">
+        <button class="chip" data-query="How do I vote step by step?" aria-label="Ask how to vote">🗳️ How to Vote</button>
+        <button class="chip" data-query="Show me the election timeline and phases" aria-label="Ask about election timeline">📅 Election Timeline</button>
+        <button class="chip" data-query="What documents do I need to bring for voting?" aria-label="Ask about required documents">📄 Documents Required</button>
+        <button class="chip" data-query="How do I register to vote?" aria-label="Ask about voter registration">📝 Registration Guide</button>
+        <button class="chip" data-query="Where is my polling booth and how do I find it?" aria-label="Ask about finding polling booth">🏫 Find My Booth</button>
+        <button class="chip" data-query="What if I miss voting day?" aria-label="Ask what happens if you miss voting day">❓ Miss Voting Day?</button>
+      </div>
+
+      <!-- Chat window -->
+      <div
+        class="chat-window"
+        id="chat-window"
+        role="log"
+        aria-live="polite"
+        aria-label="Conversation with election assistant"
+      ></div>
+
+      <p class="loading-text" id="loading" aria-live="polite" aria-label="Loading response">
+        ⏳ Analyzing your situation…
+      </p>
+
+      <!-- Chat input -->
+      <div class="chat-input-row">
+        <label for="chat-input" class="sr-only">Type your election question</label>
+        <input
+          type="text"
+          id="chat-input"
+          placeholder="Ask anything about elections, registration, or voting…"
+          aria-label="Type your question about elections"
+          maxlength="500"
+          autocomplete="off"
+        />
+        <button id="send-btn" class="btn-send" aria-label="Send your question">
+          ➤
+        </button>
+      </div>
+    </section>
+
+    <!-- ── 3. Election Timeline ──────────────────────────── -->
+    <section class="card" aria-labelledby="timeline-heading">
+      <div class="section-title">
+        <span class="icon" aria-hidden="true">📅</span>
+        <h2 id="timeline-heading">Election Timeline & Phases</h2>
+      </div>
+
+      <nav class="timeline" aria-label="Election phases timeline">
+
+        <div class="timeline-item">
+          <div class="timeline-left" aria-hidden="true">
+            <div class="timeline-dot done"></div>
+            <div class="timeline-line"></div>
+          </div>
+          <div class="timeline-content">
+            <div class="timeline-phase">Phase 1</div>
+            <div class="timeline-title">Voter Registration & Roll Revision</div>
+            <div class="timeline-desc">
+              Citizens register to vote or update existing registrations. 
+              The Electoral Roll is published and verified. Corrections can be submitted to the ERO. 
+              Typically closes 4–6 weeks before election day.
+            </div>
+            <span class="timeline-badge badge-done">✅ Registration Open</span>
+          </div>
+        </div>
+
+        <div class="timeline-item">
+          <div class="timeline-left" aria-hidden="true">
+            <div class="timeline-dot done"></div>
+            <div class="timeline-line"></div>
+          </div>
+          <div class="timeline-content">
+            <div class="timeline-phase">Phase 2</div>
+            <div class="timeline-title">Election Announcement & Campaigning</div>
+            <div class="timeline-desc">
+              The Model Code of Conduct comes into effect. Candidates file nominations, 
+              parties campaign across constituencies. Campaigning officially ends 48 hours 
+              before polling day (silent period).
+            </div>
+            <span class="timeline-badge badge-done">📢 Campaigning Phase</span>
+          </div>
+        </div>
+
+        <div class="timeline-item">
+          <div class="timeline-left" aria-hidden="true">
+            <div class="timeline-dot active"></div>
+            <div class="timeline-line"></div>
+          </div>
+          <div class="timeline-content">
+            <div class="timeline-phase">Phase 3</div>
+            <div class="timeline-title">Silent Period (48 Hours Before Voting)</div>
+            <div class="timeline-desc">
+              No campaigning, rallies, or exit polls. A time to reflect and make your 
+              final decision. Verify your polling booth location and prepare your documents.
+            </div>
+            <span class="timeline-badge badge-active">🔇 Silent Period</span>
+          </div>
+        </div>
+
+        <div class="timeline-item">
+          <div class="timeline-left" aria-hidden="true">
+            <div class="timeline-dot upcoming"></div>
+            <div class="timeline-line"></div>
+          </div>
+          <div class="timeline-content">
+            <div class="timeline-phase">Phase 4</div>
+            <div class="timeline-title">Voting Day 🗳️</div>
+            <div class="timeline-desc">
+              Polls open from 7:00 AM to 6:00 PM (varies by constituency). Bring your voter ID. 
+              Best times to vote: early morning (7–9 AM) or mid-afternoon (2–4 PM) to avoid 
+              peak queues. Your ink-marked finger is your badge of honour.
+            </div>
+            <span class="timeline-badge badge-upcoming">⏳ Upcoming</span>
+          </div>
+        </div>
+
+        <div class="timeline-item">
+          <div class="timeline-left" aria-hidden="true">
+            <div class="timeline-dot upcoming"></div>
+            <div class="timeline-line"></div>
+          </div>
+          <div class="timeline-content">
+            <div class="timeline-phase">Phase 5</div>
+            <div class="timeline-title">Vote Counting & Results</div>
+            <div class="timeline-desc">
+              EVMs are unsealed and votes counted at counting centres. Results are announced 
+              constituency by constituency. The Election Commission declares winners. 
+              Usually 2–5 days after the final phase of voting.
+            </div>
+            <span class="timeline-badge badge-upcoming">📊 Counting & Results</span>
+          </div>
+        </div>
+
+        <div class="timeline-item">
+          <div class="timeline-left" aria-hidden="true">
+            <div class="timeline-dot upcoming"></div>
+            <div class="timeline-line"></div>
+          </div>
+          <div class="timeline-content">
+            <div class="timeline-phase">Phase 6</div>
+            <div class="timeline-title">Government Formation</div>
+            <div class="timeline-desc">
+              The winning party or coalition forms the government. The President / Governor 
+              invites the leader with majority support to form government. New ministers are 
+              sworn in and Parliament / Assembly convenes.
+            </div>
+            <span class="timeline-badge badge-upcoming">🏛️ Government Formation</span>
+          </div>
+        </div>
+
+      </nav>
+    </section>
+
+    <!-- ── 4. What-If Scenarios ──────────────────────────── -->
+    <section class="card" aria-labelledby="scenarios-heading">
+      <div class="section-title">
+        <span class="icon" aria-hidden="true">❓</span>
+        <h2 id="scenarios-heading">What-If Scenarios</h2>
+        <span class="tag">Decision Engine</span>
+      </div>
+      <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:16px;">
+        Click any scenario to see a logical, reasoned explanation for common voting situations.
+      </p>
+      <div class="scenarios-grid" id="scenarios-grid" role="list" aria-label="Voting what-if scenarios"></div>
+    </section>
+
+  </main>
+
+  <!-- ══════════════════════════════════════════════════════
+       FOOTER
+  ══════════════════════════════════════════════════════ -->
+  <footer role="contentinfo">
+    <p>
+      🗳️ <strong>AI Election Decision Assistant</strong> &nbsp;|&nbsp; 
+      Built with Google Gemini API &nbsp;|&nbsp; 
+      Deployable on Google Cloud Run &nbsp;|&nbsp; 
+      <a href="https://eci.gov.in" target="_blank" rel="noopener noreferrer" 
+         style="color:var(--accent);text-decoration:none;">Election Commission of India ↗</a>
+    </p>
+    <p style="margin-top:6px;font-size:0.7rem;">
+      Your civic voice matters — every vote counts. 🇮🇳
+    </p>
+  </footer>
+
+  <!-- Screen-reader only utility class -->
+  <style>
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0,0,0,0);
+      white-space: nowrap;
+      border-width: 0;
+    }
+    .urgent-step { border-color: rgba(239,68,68,0.4) !important; }
+    .urgent-step .step-num { background: linear-gradient(135deg, var(--danger), #b91c1c); }
+  </style>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
