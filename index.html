@@ -37,35 +37,6 @@
   ══════════════════════════════════════════════════════ -->
   <main id="main-content" role="main">
 
-    <!-- ── API Key Setup ─────────────────────────────────── -->
-    <section class="card" aria-labelledby="api-key-heading">
-      <div class="section-title">
-        <span class="icon" aria-hidden="true">🔑</span>
-        <h2 id="api-key-heading">Gemini API Setup (Optional)</h2>
-        <span class="tag">AI Power</span>
-      </div>
-      <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:14px;">
-        Enter your Gemini API key to enable live AI responses. Without it, the assistant uses 
-        intelligent rule-based logic — fully functional either way.
-      </p>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;">
-        <input
-          type="password"
-          id="api-key-input"
-          placeholder="Paste your Gemini API key here…"
-          aria-label="Gemini API key"
-          autocomplete="off"
-          style="flex:1;min-width:220px;background:rgba(255,255,255,0.04);border:1px solid var(--border);
-                 border-radius:8px;padding:10px 14px;color:var(--text-primary);font-size:0.88rem;
-                 font-family:inherit;"
-        />
-        <button id="api-key-btn" class="btn-primary" aria-label="Activate Gemini API key">
-          <span aria-hidden="true">✨</span> Activate
-        </button>
-      </div>
-      <p id="key-status" role="status" aria-live="polite"
-         style="font-size:0.78rem;color:var(--text-muted);margin-top:8px;"></p>
-    </section>
 
     <!-- ── 1. Election Strategy Simulator ───────────────── -->
     <section class="card" aria-labelledby="simulator-heading">
@@ -166,6 +137,8 @@
       <p class="loading-text" id="loading" aria-live="polite" aria-label="Loading response">
         ⏳ Analyzing your situation…
       </p>
+      <p id="cloud-status" role="status" aria-live="polite"
+         style="font-size:0.75rem;margin-top:4px;display:none;"></p>
 
       <!-- Chat input -->
       <div class="chat-input-row">

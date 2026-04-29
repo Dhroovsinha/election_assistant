@@ -1,223 +1,253 @@
 /**
  * assistant.js — AI Election Decision Assistant
- * Handles Gemini API integration with rule-based fallback
+ * Gemini API (always attempted first) + Firebase + Rule-based fallback
  */
 
 "use strict";
 
-/* ── Gemini API config ─────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════
+   CONFIGURATION — replace with real keys before deployment
+══════════════════════════════════════════════════════════════ */
+const GEMINI_API_KEY   = "YOUR_GEMINI_API_KEY";
+const FIREBASE_CONFIG  = {
+  apiKey:            "YOUR_FIREBASE_API_KEY",
+  authDomain:        "YOUR_PROJECT.firebaseapp.com",
+  databaseURL:       "https://YOUR_PROJECT-default-rtdb.firebaseio.com",
+  projectId:         "YOUR_PROJECT_ID",
+  storageBucket:     "YOUR_PROJECT.appspot.com",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId:             "YOUR_APP_ID"
+};
+
 const GEMINI_ENDPOINT =
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
+  `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
 
-// Users paste their API key in the UI; we never hard-code credentials.
-let _apiKey = "";
+const SYSTEM_CONTEXT =
+  `You are the AI Election Decision Assistant — a concise, helpful expert on election
+processes, voter registration, voting rights, and civic participation. Provide step-by-step
+guidance where appropriate. Keep responses under 200 words. Format lists with numbered steps.`;
 
-export function setApiKey(key) {
-  _apiKey = (key || "").trim();
+/* ══════════════════════════════════════════════════════════════
+   FIREBASE — init and write helper
+══════════════════════════════════════════════════════════════ */
+import { initializeApp }              from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getDatabase, ref, push }    from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+let _db = null;
+try {
+  const app = initializeApp(FIREBASE_CONFIG);
+  _db = getDatabase(app);
+} catch (e) {
+  console.warn("Firebase init failed:", e.message);
 }
 
-export function hasApiKey() {
-  return _apiKey.length > 0;
+/**
+ * Save a query to Firebase Realtime Database.
+ * Returns true on success, false on failure.
+ */
+export async function saveToFirebase(text) {
+  if (!_db) {
+    console.warn("Firebase not configured — skipping write.");
+    return false;
+  }
+  try {
+    await push(ref(_db, "queries"), { text, time: Date.now() });
+    console.log("Firebase write successful");
+    return true;
+  } catch (e) {
+    console.warn("Firebase write failed:", e.message);
+    return false;
+  }
 }
 
-/* ── System prompt for Gemini ──────────────────────────────── */
-const SYSTEM_CONTEXT = `You are the AI Election Decision Assistant — a helpful, concise expert 
-on election processes, voter registration, voting rights, and civic participation. 
-Provide step-by-step guidance where appropriate. Keep responses under 200 words. 
-Format lists with numbered steps when explaining processes. Be encouraging and accessible.`;
-
-/* ── Call Gemini API ───────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════
+   GEMINI API — always attempted first
+══════════════════════════════════════════════════════════════ */
 export async function callGemini(userMessage) {
-  console.log("Gemini API called"); // Required console signal
+  console.log("Gemini API called");
 
-  const body = {
-    contents: [
-      {
-        role: "user",
-        parts: [{ text: `${SYSTEM_CONTEXT}\n\nUser query: ${userMessage}` }]
-      }
-    ],
-    generationConfig: {
-      temperature: 0.7,
-      maxOutputTokens: 512
-    }
-  };
-
-  const response = await fetch(`${GEMINI_ENDPOINT}?key=${_apiKey}`, {
-    method: "POST",
+  const res = await fetch(GEMINI_ENDPOINT, {
+    method:  "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body)
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: `${SYSTEM_CONTEXT}\n\nUser query: ${userMessage}` }] }],
+      generationConfig: { temperature: 0.7, maxOutputTokens: 512 }
+    })
   });
 
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({}));
-    throw new Error(err?.error?.message || `HTTP ${response.status}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error?.message || `HTTP ${res.status}`);
   }
 
-  const data = await response.json();
-  const text =
-    data?.candidates?.[0]?.content?.parts?.[0]?.text || "No response received.";
-  return text.trim();
+  const data = await res.json();
+  return data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "No response received.";
 }
 
-/* ── Rule-based fallback responses ────────────────────────── */
-const RULES = [
-  {
-    patterns: ["how to vote", "how do i vote", "voting process", "cast my vote"],
-    response: `**How to Vote — Step-by-Step**
+/* ══════════════════════════════════════════════════════════════
+   INTENT DETECTION — exported for testing
+══════════════════════════════════════════════════════════════ */
+const INTENT_MAP = [
+  { intent: "voting",        patterns: ["how to vote", "how do i vote", "voting process", "cast my vote"] },
+  { intent: "registration",  patterns: ["register", "registration", "form 6", "sign up to vote", "how to register"] },
+  { intent: "documents",     patterns: ["document", "what to bring", "what to carry", "what do i bring"] },
+  { intent: "timeline",      patterns: ["timeline", "election phases", "election schedule", "when is"] },
+  { intent: "whatif",        patterns: ["miss voting", "miss election", "what if i miss", "can't vote", "cannot vote", "absent"] },
+  { intent: "booth",         patterns: ["polling booth", "where to vote", "polling station", "location"] },
+  { intent: "firsttime",     patterns: ["first time", "first-time voter", "new voter", "beginner"] },
+  { intent: "plan",          patterns: ["personal plan", "my plan", "what should i do", "help me"] }
+];
 
-1. **Verify your registration** — Check your name on the electoral roll at your state's election website.
-2. **Find your polling booth** — Use your voter ID card or the official website to locate your assigned booth.
-3. **Gather documents** — Bring your Voter ID card (or approved alternate ID such as Aadhaar, Passport, PAN card).
-4. **Go on voting day** — Arrive during polling hours (usually 7 AM – 6 PM). Queues are shorter mid-morning.
-5. **Cast your vote** — Show ID → get inked → press the EVM button → receive VVPAT confirmation slip.
-6. **Done!** — You've exercised your democratic right. ✅`
+export function detectIntent(query) {
+  const q = query.toLowerCase().trim();
+  for (const { intent, patterns } of INTENT_MAP) {
+    if (patterns.some(p => q.includes(p))) return intent;
+  }
+  return "general";
+}
+
+/* ══════════════════════════════════════════════════════════════
+   WHAT-IF HANDLER — exported for testing
+══════════════════════════════════════════════════════════════ */
+const WHATIF_MAP = [
+  {
+    keys: ["miss voting", "miss election", "miss voting day"],
+    answer: "Unfortunately, votes cannot be cast after polling closes. If you knew in advance you'd be unavailable, you may apply for a postal ballot before election day. For the future: register early, set calendar reminders, and check postal ballot eligibility if travel is a concern."
   },
   {
-    patterns: ["register", "registration", "how to register", "sign up to vote"],
-    response: `**Voter Registration Guide**
-
-1. Visit your state's Chief Electoral Officer (CEO) website or the NVSP portal (nvsp.in).
-2. Fill Form 6 (new voter registration) online or offline.
-3. Provide proof of age (birth certificate, class 10 marksheet), proof of address, and a passport photo.
-4. Submit the form — you'll receive an acknowledgement number.
-5. Track your application status on the NVSP portal.
-6. Download or collect your Voter ID card once approved.
-
-⚠️ Registration deadlines are typically 4–6 weeks before election day.`
+    keys: ["not on roll", "not on electoral roll"],
+    answer: "Visit your nearest Electoral Registration Officer (ERO) or Booth Level Officer (BLO) with proof of residence. File a complaint on the NVSP portal or call the Election Commission helpline 1950."
   },
   {
-    patterns: ["document", "id", "what do i bring", "what to bring", "what to carry"],
-    response: `**Documents to Bring for Voting**
-
-Your Voter ID (EPIC card) is the primary document. If unavailable, these are accepted alternatives:
-- Aadhaar Card
-- Passport
-- Driving Licence
-- PAN Card
-- Government-issued photo ID
-- MNREGA job card
-- Bank / Post Office passbook with photo
-
-Tip: Check the Election Commission of India's latest approved list before voting day.`
+    keys: ["moved recently", "moved", "new address"],
+    answer: "Update your address using Form 8A on nvsp.in before the revision deadline. If not done in time, you can still vote at your old constituency's booth until the change is officially processed."
   },
   {
-    patterns: ["timeline", "election phases", "election schedule", "when is"],
-    response: `**Election Timeline & Phases**
-
-📋 **Phase 1 — Voter Registration** (closes ~6 weeks before election)
-📢 **Phase 2 — Campaign Period** (official campaign window, typically 21–30 days)
-🗳️ **Phase 3 — Voting Day** (polls open 7 AM – 6 PM)
-🔇 **Phase 4 — Silent Period** (48 hours before voting, no campaigning)
-📊 **Phase 5 — Counting & Results** (usually 2–5 days after voting)
-🏛️ **Phase 6 — Government Formation** (following results)
-
-The Election Commission of India announces all official dates via press release and its website (eci.gov.in).`
+    keys: ["lost voter id", "lost my voter", "no voter id"],
+    answer: "Download your e-EPIC instantly from nvsp.in using your EPIC number or registered mobile. Accepted alternates: Aadhaar, Passport, PAN, or any government-issued photo ID."
   },
   {
-    patterns: ["miss voting", "miss election", "can't vote", "cannot vote", "what if i miss", "absent"],
-    response: `**What if You Miss Voting Day?**
-
-Unfortunately, once voting day has passed, your vote cannot be cast retroactively. However:
-
-- **Postal ballot**: If you're away (e.g., on duty, abroad), you may be eligible for a postal ballot. Apply in advance with the Returning Officer.
-- **Plan ahead**: Mark voting day in your calendar, arrange travel/work schedules accordingly.
-- **Your vote matters**: Even a single vote can decide local races — every vote counts.
-
-For the next election: register early, set reminders, and check for postal ballot eligibility if travel is a concern.`
+    keys: ["evm malfunction", "evm broke", "machine not working"],
+    answer: "Inform the Presiding Officer immediately. EVMs are replaced if they malfunction; your vote is not lost. File a complaint via 1950 or eci.gov.in."
   },
   {
-    patterns: ["polling booth", "where to vote", "location", "polling station"],
-    response: `**Finding Your Polling Booth**
-
-1. Visit **voters.eci.gov.in** or your state CEO website.
-2. Enter your name, EPIC number, or Aadhaar (if seeded).
-3. Your assigned polling station address and serial number will be shown.
-4. You can also check the Voter Helpline App or call **1950** (Election Commission helpline).
-
-Always confirm your booth at least a week before election day to avoid surprises.`
-  },
-  {
-    patterns: ["first time", "first-time voter", "new voter", "beginner"],
-    response: `**First-Time Voter Guide** 🎉
-
-Welcome to democracy! Here's what you need to know:
-
-1. **Register first** — If not already registered, visit nvsp.in and fill Form 6.
-2. **Get your Voter ID** — It arrives by post or can be downloaded as an e-EPIC.
-3. **Find your booth** — Use voters.eci.gov.in to locate your polling station.
-4. **Know your candidates** — Research candidates using the Voter Helpline App or Affidavit portal.
-5. **On election day** — Bring your ID, join the queue, follow booth staff instructions.
-6. **Cast your vote** — Press the EVM button next to your chosen candidate's symbol.
-
-Your first vote is a milestone — make it count! 🇮🇳`
-  },
-  {
-    patterns: ["evm", "electronic voting", "voting machine", "how does evm work"],
-    response: `**How Electronic Voting Machines (EVMs) Work**
-
-1. The Presiding Officer enables the Control Unit before each voter.
-2. You press the blue button next to your candidate's name/symbol on the Ballot Unit.
-3. A beep confirms your vote is recorded.
-4. The VVPAT machine prints a paper slip showing your candidate's name and symbol — visible for 7 seconds through a glass window.
-5. The slip automatically drops into a sealed box for audit purposes.
-
-EVMs are standalone, not connected to any network, and are tamper-resistant.`
-  },
-  {
-    patterns: ["personal plan", "my plan", "help me", "what should i do"],
-    response: `To generate your personalized voter action plan, use the **Election Strategy Simulator** above! 
-
-Fill in:
-- Whether you're a first-time voter
-- Your registration status
-- Days left before voting
-
-I'll generate a step-by-step plan tailored specifically to your situation, complete with urgency signals and reasoning. 🎯`
+    keys: ["student", "studying away", "away from home"],
+    answer: "Option 1: Register at your current address via Form 6 on nvsp.in (if staying 6+ months). Option 2: Travel home to vote. Postal ballot may apply for some election types — check nvsp.in."
   }
 ];
 
-/* ── Intent detection & fallback response ──────────────────── */
-export function getRuleBasedResponse(query) {
+export function handleWhatIf(query) {
   const q = query.toLowerCase().trim();
-
-  for (const rule of RULES) {
-    if (rule.patterns.some(p => q.includes(p))) {
-      return rule.response;
-    }
+  for (const { keys, answer } of WHATIF_MAP) {
+    if (keys.some(k => q.includes(k))) return answer;
   }
-
-  // Generic fallback
-  return `I'm here to help with everything related to elections and voting! You can ask me about:
-
-- 📝 **Voter registration** — How and where to register
-- 🗳️ **How to vote** — Step-by-step voting process
-- 📄 **Required documents** — What ID to bring
-- 📅 **Election timeline** — Phases and key dates
-- 🏫 **Polling booth** — How to find your polling station
-- ❓ **What-if scenarios** — "What if I miss voting day?"
-
-Or use the **Election Strategy Simulator** above for a personalized action plan!`;
+  // Always returns a non-empty string
+  return "For this what-if situation, please contact the Election Commission helpline at 1950 or visit eci.gov.in for official guidance tailored to your specific circumstances.";
 }
 
-/* ── Unified query handler ─────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════
+   RULE-BASED FALLBACK
+══════════════════════════════════════════════════════════════ */
+const RULE_RESPONSES = {
+  voting:
+`**How to Vote — Step-by-Step**
+
+1. Verify your registration at voters.eci.gov.in
+2. Find your assigned polling booth (EPIC card or NVSP portal)
+3. Bring your Voter ID (or approved alternate: Aadhaar, Passport, PAN)
+4. Arrive between 7–9 AM or 2–4 PM to avoid peak queues
+5. Show ID → get inked → press EVM button → VVPAT confirmation slip → Done ✅`,
+
+  registration:
+`**Voter Registration Guide**
+
+1. Visit nvsp.in or voters.eci.gov.in
+2. Fill Form 6 (new registration) online or offline
+3. Provide proof of age, proof of address, and a passport photo
+4. Submit — you'll receive an acknowledgement number
+5. Download or collect Voter ID once approved
+⚠️ Registration typically closes 4–6 weeks before election day.`,
+
+  documents:
+`**Documents to Bring**
+
+Primary: Voter ID (EPIC card)
+Alternates accepted:
+• Aadhaar Card  • Passport  • Driving Licence
+• PAN Card  • Government-issued photo ID
+• MNREGA job card  • Bank passbook with photo`,
+
+  timeline:
+`**Election Timeline & Phases**
+
+📋 Phase 1 — Voter Registration (closes ~6 weeks before)
+📢 Phase 2 — Campaigning (21–30 days)
+🔇 Phase 3 — Silent Period (48 hrs before voting)
+🗳️ Phase 4 — Voting Day (7 AM – 6 PM)
+📊 Phase 5 — Counting & Results
+🏛️ Phase 6 — Government Formation`,
+
+  whatif:
+`Use the **What-If Scenarios** section below, or ask specifically (e.g., "What if I miss voting day?")`,
+
+  booth:
+`**Finding Your Polling Booth**
+
+1. Visit voters.eci.gov.in
+2. Search by EPIC number or Aadhaar
+3. Your polling station address and serial number will be shown
+4. Or call 1950 (Election Commission helpline)`,
+
+  firsttime:
+`**First-Time Voter Guide** 🎉
+
+1. Register at nvsp.in → Fill Form 6
+2. Get your Voter ID (download e-EPIC from nvsp.in)
+3. Find your booth at voters.eci.gov.in
+4. Research candidates at affidavit.eci.gov.in
+5. On election day: bring ID, join queue, press EVM button 🗳️
+Your first vote is a milestone — make it count! 🇮🇳`,
+
+  plan:
+`Use the **Election Strategy Simulator** above to generate your personalized action plan! Fill in your voter type, registration status, and days remaining.`,
+
+  general:
+`I can help with:
+• 📝 Voter registration
+• 🗳️ How to vote (step-by-step)
+• 📄 Required documents
+• 📅 Election timeline & phases
+• 🏫 Finding your polling booth
+• ❓ What-if scenarios
+
+Or use the **Election Strategy Simulator** above for a personalized plan!`
+};
+
+export function fallbackResponse(query) {
+  const intent = detectIntent(query);
+  return RULE_RESPONSES[intent] || RULE_RESPONSES.general;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   UNIFIED QUERY HANDLER — Gemini always first
+══════════════════════════════════════════════════════════════ */
 export async function handleQuery(query) {
   const sanitized = sanitize(query);
   if (!sanitized) throw new Error("Please enter a valid question.");
 
-  if (hasApiKey()) {
-    try {
-      return { source: "gemini", text: await callGemini(sanitized) };
-    } catch (e) {
-      console.warn("Gemini API error — falling back to rule-based:", e.message);
-      return { source: "fallback", text: getRuleBasedResponse(sanitized) };
-    }
+  // Always attempt Gemini first
+  try {
+    const text = await callGemini(sanitized);
+    return { source: "gemini", text: `AI Response (Gemini): ${text}` };
+  } catch (e) {
+    console.log("Gemini failed → fallback");
+    return { source: "fallback", text: fallbackResponse(sanitized) };
   }
-
-  return { source: "fallback", text: getRuleBasedResponse(sanitized) };
 }
 
-/* ── Basic sanitization ────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════
+   INPUT SANITIZATION
+══════════════════════════════════════════════════════════════ */
 export function sanitize(input) {
   if (typeof input !== "string") return "";
   return input
