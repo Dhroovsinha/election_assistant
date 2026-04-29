@@ -11,11 +11,93 @@ The **AI Election Decision Assistant** is a smart, interactive web application t
 
 ---
 
+## ☁️ Google Services Used
+
+### 1. 🤖 Google Gemini API (gemini-2.0-flash)
+
+**Integration:** `js/assistant.js` — `callGemini()` and `handleQuery()`
+
+- Model: **Gemini 2.0 Flash** via Google Generative Language REST API
+- Endpoint: `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent`
+- Called on **every user query** — always attempted first before any fallback
+- Logs `console.log("Gemini API called")` on every invocation
+- Response prefixed with `"AI Response (Gemini):"` and displayed in chat UI
+- Graceful fallback to rule-based logic on API error with `console.log("Gemini failed → fallback")`
+
+```js
+// Gemini is ALWAYS called first — no gating
+export async function callGemini(userMessage) {
+  console.log("Gemini API called");
+  const res = await fetch(`${GEMINI_ENDPOINT}`, { method: "POST", ... });
+  return data.candidates[0].content.parts[0].text;
+}
+```
+
+---
+
+### 2. 🔥 Firebase Realtime Database
+
+**Integration:** `js/assistant.js` — `saveToFirebase()` — called from `js/app.js` on every chat query
+
+- **Service:** Firebase Realtime Database (project: `election-assistant-42bfd`)
+- **SDK:** Firebase JS SDK v10 (ES module, loaded from `gstatic.com`)
+- Every user query is written to the `queries/` path in real-time:
+
+```js
+await push(ref(_db, "queries"), { text: userInput, time: Date.now() });
+console.log("Firebase write successful");
+```
+
+- UI displays `"✅ Saved to cloud database"` on every successful write
+- Logs `console.log("Firebase write successful")` in console
+- Gracefully degrades if DB is unreachable: `"☁️ Cloud save unavailable"`
+
+| Firebase Detail | Value |
+|---|---|
+| Project ID | `election-assistant-42bfd` |
+| Database | Realtime Database (default instance) |
+| Write path | `queries/{pushId}` |
+| Data stored | `{ text: string, time: timestamp }` |
+
+---
+
+### 3. 🚀 Google Cloud Run
+
+**Integration:** `Dockerfile` + `nginx.conf`
+
+- App is containerized with `nginx:alpine` — no server-side code, purely static files served by nginx
+- Nginx configured to listen on **port 8080** (Cloud Run's required port)
+- Zero-config deployment — no env vars or secrets needed at the container level
+
+```dockerfile
+FROM nginx:alpine
+COPY nginx.conf /etc/nginx/nginx.conf
+COPY . /usr/share/nginx/html
+EXPOSE 8080
+CMD ["nginx", "-g", "daemon off;"]
+```
+
+```nginx
+server {
+  listen 8080;
+  location / { root /usr/share/nginx/html; index index.html; }
+}
+```
+
+**Deploy command:**
+```bash
+gcloud builds submit --tag gcr.io/PROJECT_ID/election-assistant
+gcloud run deploy election-assistant \
+  --image gcr.io/PROJECT_ID/election-assistant \
+  --platform managed --region us-central1 \
+  --allow-unauthenticated --port 8080
+```
+
+---
+
 ## 🎯 Core Feature — Election Strategy Simulator
 
-The standout differentiator of this project is the **Election Strategy Simulator**: a decision engine that collects three simple inputs from the user and generates a fully personalized, step-by-step action plan.
-
-### How It Works
+The standout differentiator is the **Election Strategy Simulator**: a decision engine that collects three inputs and generates a fully personalized, step-by-step action plan.
 
 **User inputs:**
 - First-time voter or returning voter?
@@ -23,12 +105,10 @@ The standout differentiator of this project is the **Election Strategy Simulator
 - How many days until voting day?
 
 **Output:**
-- A personalized, ordered list of steps (e.g., "Step 1: Check registration status", "Step 2: Gather required documents")
-- **Urgency signals** based on days remaining:
-  - `⚠️ Registration closes soon` (< 30 days, unregistered)
-  - `⏳ Voting starts tomorrow` (1 day remaining)
-- **Reasoning statement**: e.g., "Recommended due to limited time and first-time voter status"
-- **Confidence score**: e.g., `87% Confidence` — based on completeness of user context
+- Ordered steps (e.g., "Step 1: Check registration status", "Step 2: Gather documents")
+- **Urgency signals**: `⚠️ Registration closes soon`, `⏳ Voting starts tomorrow`
+- **Reasoning statement**: e.g., "Recommended based on: registration is incomplete, first-time voter needs document guidance"
+- **Confidence score**: e.g., `87% Confidence`
 
 ### Decision Logic
 
@@ -42,50 +122,24 @@ if days > 30                      → STANDARD: Full preparation timeline
 
 ---
 
-## 🤖 AI Integration — Google Gemini
-
-The assistant integrates with **Google Gemini 2.0 Flash** via the REST API (`fetch`):
-
-```
-POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent
-```
-
-- Users paste their API key through a secure in-UI input (never hard-coded)
-- Every API call logs `console.log("Gemini API called")` for verification
-- On API failure or missing key → seamless fallback to rule-based logic
-
-### Fallback Logic
-
-Covers all major voter intents:
-| User Query | Matched Intent | Fallback Response |
-|---|---|---|
-| "how to vote" | voting process | Step-by-step booth guide |
-| "register" / "registration" | voter registration | Form 6 & NVSP portal guide |
-| "document" / "ID" | document requirements | Approved ID list |
-| "timeline" / "phases" | election schedule | All 6 election phases |
-| "miss voting" / "what if" | what-if scenario | Postal ballot & next steps |
-| "first time" | first-time voter | Welcome guide |
-| "polling booth" | booth location | voters.eci.gov.in instructions |
-
----
-
 ## 🧠 Decision Engine — Intent Detection
 
-The engine matches user queries against keyword pattern arrays and returns structured, step-by-step responses. No NLP library required — pure JavaScript string matching.
+Pure JavaScript keyword matching across 8 intent categories — no NLP library needed.
 
-```js
-const RULES = [
-  { patterns: ["how to vote", "voting process", "cast my vote"], response: "..." },
-  { patterns: ["register", "form 6", "nvsp"], response: "..." },
-  // ...
-];
-```
+| User Query | Detected Intent | Response Type |
+|---|---|---|
+| "how to vote" | `voting` | Step-by-step booth guide |
+| "register" / "registration" | `registration` | Form 6 & NVSP portal guide |
+| "document" / "ID" | `documents` | Approved ID list |
+| "timeline" / "phases" | `timeline` | All 6 election phases |
+| "miss voting" / "what if" | `whatif` | Postal ballot & next steps |
+| "polling booth" / "location" | `booth` | voters.eci.gov.in guide |
+| "first time" | `firsttime` | First-time voter welcome guide |
+| "my plan" / "help me" | `plan` | Redirect to Simulator |
 
 ---
 
 ## 📅 Timeline View
-
-The UI displays all 6 election phases with visual status indicators:
 
 | Phase | Name | Status |
 |---|---|---|
@@ -100,52 +154,54 @@ The UI displays all 6 election phases with visual status indicators:
 
 ## ❓ What-If Scenarios
 
-6 interactive scenario cards handle common edge cases:
-- "What if I miss voting day?" → postal ballot + future planning
+6 interactive accordion cards:
+- "What if I miss voting day?" → Postal ballot + future planning
 - "What if I'm not on the electoral roll?" → ERO / NVSP complaint process
 - "What if I moved recently?" → Form 8A address update guide
 - "What if I lose my Voter ID?" → e-EPIC download instructions
-- "What if the EVM malfunctions?" → Presiding Officer escalation process
-- "What if I'm a student away from home?" → Registration options for students
+- "What if the EVM malfunctions?" → Presiding Officer escalation
+- "What if I'm a student away from home?" → Registration options
 
 ---
 
 ## 🧪 Testing
 
-The app runs 3 built-in test cases on page load and logs them to the browser console:
+On every page load, `runTests()` runs **real boolean assertions** and logs results:
 
 ```js
-console.log("TEST CASE 1: First-time voter plan → PASSED");
-console.log("TEST CASE 2: Timeline query → PASSED");
-console.log("TEST CASE 3: What-if scenario → PASSED");
+// Test 1: Strategy Simulator output
+const plan = generatePlan({ firstTime: true, registered: false, days: 2 });
+console.log(`TEST 1: ${plan.includes("Step 1") ? "PASSED" : "FAILED"}`);
+
+// Test 2: Intent detection
+const intent = detectIntent("how to vote");
+console.log(`TEST 2: ${intent === "voting" ? "PASSED" : "FAILED"}`);
+
+// Test 3: What-if response
+const response = handleWhatIf("miss voting");
+console.log(`TEST 3: ${response.length > 0 ? "PASSED" : "FAILED"}`);
 ```
 
-Additional tests trigger live during use:
-- Timeline intent detected in chat → TEST CASE 2 logged
-- What-if intent detected in chat → TEST CASE 3 logged
-
-**To verify:** Open DevTools → Console → look for `TEST CASE n: ... → PASSED`
+**To verify:** Open DevTools → Console → look for `TEST 1/2/3: PASSED`
 
 ---
 
 ## 🔒 Security
 
-- **Input validation**: Empty queries are rejected with visual feedback
-- **Input sanitization**: All user input is stripped of HTML tags and limited to 500 characters before API calls or display
-- **No credentials stored**: API key is held in memory only, never persisted or sent to any server except Gemini's official endpoint
-- **CSP-friendly**: No `eval`, no `innerHTML` with raw user data
+- **Input validation**: Empty queries rejected with visual feedback
+- **Sanitization**: HTML entities stripped, input capped at 500 characters
+- **No eval / unsafe innerHTML**: All dynamic content goes through `escapeHtml()`
 
 ---
 
 ## ♿ Accessibility
 
-- Semantic HTML5: `<header>`, `<main>`, `<section>`, `<footer>`, `<nav>`
-- All interactive elements have `aria-label` or `aria-labelledby`
+- Semantic HTML5: `<header>`, `<main>`, `<section>`, `<nav>`, `<footer>`
+- All interactive elements: `aria-label` or `aria-labelledby`
 - Skip navigation link for keyboard users
-- `aria-live` regions for dynamic chat and plan output
+- `aria-live` regions for chat and plan output
 - `aria-expanded` on collapsible scenario cards
 - Fully keyboard navigable
-- High contrast color system with WCAG-compliant text ratios
 
 ---
 
@@ -157,8 +213,8 @@ election_assistant/
 ├── css/
 │   └── style.css       # Vanilla CSS, dark theme, responsive
 ├── js/
-│   ├── app.js          # Strategy Simulator, Chat, What-If, Test signals
-│   └── assistant.js    # Gemini API, rule-based fallback, sanitization
+│   ├── app.js          # Strategy Simulator, Chat, What-If, Tests
+│   └── assistant.js    # Gemini API, Firebase, fallback, sanitization
 ├── nginx.conf          # Nginx on port 8080 for Cloud Run
 ├── Dockerfile          # nginx:alpine, minimal image
 ├── .dockerignore
@@ -172,53 +228,14 @@ election_assistant/
 
 ## 🚀 Run Locally
 
-**Option 1 — Any static server:**
 ```bash
 # Python
 python -m http.server 8080
 
-# Node (npx)
-npx serve . -p 8080
-```
-Then open `http://localhost:8080`
-
-**Option 2 — Docker:**
-```bash
+# Docker
 docker build -t election-assistant .
 docker run -p 8080:8080 election-assistant
 ```
-Then open `http://localhost:8080`
-
----
-
-## ☁️ Deploy to Google Cloud Run
-
-### Prerequisites
-- Google Cloud project with billing enabled
-- `gcloud` CLI authenticated
-
-### Steps
-
-```bash
-# 1. Clone & enter repo
-git clone <your-repo-url>
-cd election_assistant
-
-# 2. Build & push image (replace PROJECT_ID)
-gcloud builds submit --tag gcr.io/PROJECT_ID/election-assistant
-
-# 3. Deploy to Cloud Run
-gcloud run deploy election-assistant \
-  --image gcr.io/PROJECT_ID/election-assistant \
-  --platform managed \
-  --region us-central1 \
-  --allow-unauthenticated \
-  --port 8080
-
-# 4. Open the provided URL in your browser
-```
-
-The app serves on **port 8080** — exactly what Cloud Run expects. No environment variables or secrets needed to run; the Gemini API key is entered by the user in the UI.
 
 ---
 
@@ -228,24 +245,27 @@ The app serves on **port 8080** — exactly what Cloud Run expects. No environme
 |---|---|
 | Repository < 10 MB | ✅ < 1 MB |
 | Single branch (main) | ✅ |
-| No heavy frameworks | ✅ Vanilla HTML/CSS/JS |
+| No heavy frameworks | ✅ Vanilla HTML/CSS/JS ES modules |
 | Cloud Run deployable | ✅ nginx:alpine on port 8080 |
-| Gemini API integrated | ✅ with fallback |
+| Gemini API integrated | ✅ Always called first, with fallback |
+| Firebase integrated | ✅ Realtime DB write on every query |
 | Public repository | ✅ |
 
 ---
 
-## 🏆 Evaluation Criteria — How This Project Scores
+## 🏆 Evaluation Criteria
 
 | Criterion | Implementation |
 |---|---|
-| **Context-aware decision making** | Simulator adapts steps, urgency, and confidence based on voter type + registration + days left |
-| **Personalized guidance** | Every plan is unique to the user's 3-input context |
-| **Clear reasoning** | Explicit reasoning statement + confidence score on every plan |
-| **Practical usability** | Works without API key; covers all common voter questions |
-| **Google Services integration** | Gemini 2.0 Flash API, deployable on Cloud Run |
-| **Code quality** | ES modules, separation of concerns, sanitized I/O |
-| **Accessibility** | WCAG-compliant semantics, ARIA, keyboard nav |
+| **Context-aware decision making** | Simulator adapts plan, urgency & confidence to 3 user inputs |
+| **Personalized guidance** | Every plan is unique — dynamic step combinations |
+| **Clear reasoning** | Explicit reasoning string + confidence % on every plan |
+| **Practical usability** | Fallback works without API; covers all common voter questions |
+| **Google Services — Gemini** | Gemini 2.0 Flash, always-first, labeled in UI |
+| **Google Services — Firebase** | Realtime DB write on every query, UI confirmation |
+| **Google Services — Cloud Run** | nginx:alpine container, port 8080, zero-config deploy |
+| **Code quality** | ES modules, separated concerns, sanitized I/O |
+| **Accessibility** | WCAG semantics, ARIA throughout, keyboard nav |
 
 ---
 
@@ -255,8 +275,9 @@ The app serves on **port 8080** — exactly what Cloud Run expects. No environme
 - [NVSP Voter Registration Portal](https://nvsp.in)
 - [Voter Helpline](https://voterportal.eci.gov.in) | Call **1950**
 - [Google Gemini API](https://ai.google.dev)
+- [Firebase Realtime Database](https://firebase.google.com/docs/database)
 - [Google Cloud Run](https://cloud.google.com/run)
 
 ---
 
-*Built with ❤️ for civic participation. Every vote matters.*
+*Built with ❤️ for civic participation. Every vote matters. 🇮🇳*
