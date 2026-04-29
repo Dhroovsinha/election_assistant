@@ -8,15 +8,15 @@
 /* ══════════════════════════════════════════════════════════════
    CONFIGURATION — replace with real keys before deployment
 ══════════════════════════════════════════════════════════════ */
-const GEMINI_API_KEY   = "YOUR_GEMINI_API_KEY";
+const GEMINI_API_KEY   = "AIzaSyAgy4A7TNNjW4YsWEPa0juzK9dFRZdmdoo";
 const FIREBASE_CONFIG  = {
-  apiKey:            "YOUR_FIREBASE_API_KEY",
-  authDomain:        "YOUR_PROJECT.firebaseapp.com",
-  databaseURL:       "https://YOUR_PROJECT-default-rtdb.firebaseio.com",
-  projectId:         "YOUR_PROJECT_ID",
-  storageBucket:     "YOUR_PROJECT.appspot.com",
-  messagingSenderId: "YOUR_SENDER_ID",
-  appId:             "YOUR_APP_ID"
+  apiKey:            "AIzaSyC83Fonl80gB8iTIWw5KU7PO8_CgeG3Xc0",
+  authDomain:        "election-assistant-42bfd.firebaseapp.com",
+  databaseURL:       "https://election-assistant-42bfd-default-rtdb.firebaseio.com",
+  projectId:         "election-assistant-42bfd",
+  storageBucket:     "election-assistant-42bfd.firebasestorage.app",
+  messagingSenderId: "253613716156",
+  appId:             "1:253613716156:web:5cd1e3348d837b16cb56b9"
 };
 
 const GEMINI_ENDPOINT =
